@@ -11,6 +11,8 @@ import (
 	"github.com/rivo/tview"
 )
 
+// TODO Add theming
+
 func main() {
 	result := make(chan string, 1)
 
@@ -21,11 +23,14 @@ func main() {
 	headerRow2.SetBackgroundColor(tcell.ColorWhiteSmoke)
 	footerRow1 := tview.NewTextView().SetTextAlign(tview.AlignLeft).SetTextColor(tcell.ColorWhiteSmoke)
 	footerRow1.SetBackgroundColor(tcell.ColorWhiteSmoke)
-	footerRow2 := tview.NewTextView().SetTextAlign(tview.AlignLeft).SetTextColor(tcell.ColorWhiteSmoke).SetText("Speed search:")
-	footerRow2.SetBackgroundColor(tcell.ColorRoyalBlue).SetBorderPadding(0, 0, 1, 1)
+	footerRow2a := tview.NewTextView().SetTextAlign(tview.AlignLeft).SetTextColor(tcell.ColorWhiteSmoke).SetText("Speed search:")
+	footerRow2a.SetBackgroundColor(tcell.ColorRoyalBlue).SetBorderPadding(0, 0, 1, 1)
+	footerRow2b := tview.NewInputField().SetFieldWidth(20)
+	footerRow2b.SetBackgroundColor(tcell.ColorRoyalBlue)
+	footerRow2b.SetFieldBackgroundColor(tcell.ColorBlack)
 	footerRow3 := tview.NewTextView().SetTextAlign(tview.AlignLeft).SetTextColor(tcell.ColorLightYellow)
 	footerRow3.SetBackgroundColor(tcell.ColorRoyalBlue).SetBorderPadding(0, 0, 1, 1)
-	flexFooter2 := tview.NewFlex().SetDirection(tview.FlexColumn).AddItem(footerRow2, 0, 1, false)
+	flexFooter2 := tview.NewFlex().SetDirection(tview.FlexColumn).AddItem(footerRow2a, 15, 1, false).AddItem(footerRow2b, 0, 1, false)
 	flexFooter3 := tview.NewFlex().SetDirection(tview.FlexColumn).AddItem(footerRow3, 0, 1, false)
 	flexBody := tview.NewFlex().SetDirection(tview.FlexRow).AddItem(headerRow1, 1, 1, false).AddItem(headerRow2, 1, 1, false)
 
@@ -53,7 +58,6 @@ func main() {
 			footerRow3.SetText(path)
 		}
 	}).SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		// TODO Esc exit
 		if event.Key() == tcell.KeyLeft {
 			// TODO Go back
 			tree.GetCurrentNode().Collapse()
@@ -72,38 +76,35 @@ func main() {
 			} else {
 				currentNode.SetExpanded(true)
 			}
-
 			return nil
 		}
+		if event.Key() == tcell.KeyBackspace || event.Key() == tcell.KeyBackspace2 {
+			search := footerRow2b.GetText()
+			if len(search) == 0 {
+				return nil
+			}
+			footerRow2b.SetText(search[:len(search)-1])
+			return nil
+		}
+		if event.Key() == tcell.KeyRune {
+			footerRow2b.SetText(footerRow2b.GetText() + string(event.Rune()))
+			return nil
+		}
+		if event.Key() == tcell.KeyESC || event.Key() == tcell.KeyEsc || event.Key() == tcell.KeyEscape {
+			app.Stop()
+			os.Exit(0)
+			return nil
+		}
+
 		return event
-	})
-	tree.SetBackgroundColor(tcell.ColorRoyalBlue).SetBorderPadding(1, 1, 1, 1)
+	}).SetBackgroundColor(tcell.ColorRoyalBlue).SetBorderPadding(1, 1, 1, 1)
 
 	// Goto current dir
 	current, err := os.Getwd()
 	if err != nil {
 		footerRow3.SetText("error " + err.Error()) // TODO Error message area
 	}
-	currentParts := strings.Split(current, string(os.PathSeparator))
-	children := tree.GetCurrentNode().GetChildren()
-	for i := 0; i < len(currentParts); i++ {
-		for j := 0; j < len(children); j++ {
-			child := children[j]
-			if child.GetText() == currentParts[i] {
-				path := rootDir
-				reference := child.GetReference()
-				if reference != nil {
-					path = reference.(string)
-				}
-
-				populate(child, path)
-
-				child.Expand()
-				tree.Move(j + 1)
-				children = child.GetChildren()
-			}
-		}
-	}
+	navigateTo(tree, current)
 
 	flexBody.AddItem(tree, 0, 1, false).AddItem(footerRow1, 1, 1, false).AddItem(flexFooter2, 1, 1, false).AddItem(flexFooter3, 1, 1, false)
 
@@ -115,6 +116,7 @@ func main() {
 		}
 		return event
 	})
+
 	if err := app.Run(); err != nil {
 		panic(err)
 	}
@@ -149,4 +151,25 @@ func getRootDir() string {
 		return filepath.VolumeName(wd) + string(os.PathSeparator)
 	}
 	return "/"
+}
+
+func navigateTo(tree *tview.TreeView, path string) {
+	pathParts := strings.Split(path, string(os.PathSeparator))
+	children := tree.GetCurrentNode().GetChildren()
+	for i := 0; i < len(pathParts); i++ {
+		for j := 0; j < len(children); j++ {
+			child := children[j]
+			if child.GetText() == pathParts[i] {
+				path := getRootDir()
+				reference := child.GetReference()
+				if reference != nil {
+					path = reference.(string)
+				}
+				populate(child, path)
+				child.Expand()
+				tree.Move(j + 1)
+				children = child.GetChildren()
+			}
+		}
+	}
 }
