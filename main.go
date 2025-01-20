@@ -89,19 +89,21 @@ func main() {
 			return nil
 		}
 		if event.Key() == tcell.KeyBackspace || event.Key() == tcell.KeyBackspace2 {
-			// TODO Search for node and set current
 			search := footerRow2b.GetText()
 			if len(search) == 0 {
 				return nil
 			}
+			// Search for node and set current
 			footerRow2b.SetText(search[:len(search)-1])
+			if child := findNodeWithPrefix(root, footerRow2b.GetText()); child != nil {
+				tree.SetCurrentNode(child)
+			}
 			return nil
 		}
 		if event.Key() == tcell.KeyRune {
 			// Search for node and set current
 			footerRow2b.SetText(footerRow2b.GetText() + string(event.Rune()))
-			child := findNodeWithPrefix(root, footerRow2b.GetText())
-			if child != nil {
+			if child := findNodeWithPrefix(root, footerRow2b.GetText()); child != nil {
 				tree.SetCurrentNode(child)
 			}
 			return nil
