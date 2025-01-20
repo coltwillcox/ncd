@@ -1,3 +1,4 @@
+// TODO Add theming
 package main
 
 import (
@@ -5,15 +6,20 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
-// TODO Add theming
+type Arguments struct {
+	Full bool // Expensive operation
+}
 
 func main() {
+	arguments := parseArguments()
+
 	result := make(chan string, 1)
 
 	app := tview.NewApplication()
@@ -37,7 +43,7 @@ func main() {
 	rootDir := getRootDir()
 	root := tview.NewTreeNode(rootDir)
 	root.SetTextStyle(root.GetTextStyle().Background(tcell.ColorRoyalBlue))
-	populate(root, rootDir)
+	populate(root, rootDir, arguments)
 	tree := tview.NewTreeView().SetRoot(root).SetCurrentNode(root)
 	tree.SetSelectedFunc(func(node *tview.TreeNode) {
 		reference := node.GetReference()
@@ -82,7 +88,7 @@ func main() {
 				if reference != nil {
 					path = reference.(string)
 				}
-				populate(currentNode, path)
+				populate(currentNode, path, arguments)
 			} else {
 				currentNode.SetExpanded(true)
 			}
@@ -122,7 +128,7 @@ func main() {
 	if err != nil {
 		footerRow3.SetText("error " + err.Error()) // TODO Error message area
 	}
-	navigateTo(tree, current)
+	navigateTo(tree, current, arguments)
 
 	flexBody.AddItem(tree, 0, 1, false).AddItem(footerRow1, 1, 1, false).AddItem(flexFooter2, 1, 1, false).AddItem(flexFooter3, 1, 1, false)
 
@@ -143,6 +149,18 @@ func main() {
 	fmt.Println(directory)
 }
 
+func parseArguments() Arguments {
+	result := Arguments{}
+
+	osArgs := map[string]string{}
+	for i := 1; i < len(os.Args); i = i + 2 {
+		osArgs[os.Args[i]] = os.Args[i+1]
+	}
+	result.Full, _ = strconv.ParseBool(osArgs["--full"])
+
+	return result
+}
+
 func findNodeWithPrefix(parent *tview.TreeNode, prefix string) *tview.TreeNode {
 	children := parent.GetChildren()
 	for _, child := range children {
@@ -159,7 +177,7 @@ func findNodeWithPrefix(parent *tview.TreeNode, prefix string) *tview.TreeNode {
 	return nil
 }
 
-func populate(target *tview.TreeNode, path string) {
+func populate(target *tview.TreeNode, path string, arguments Arguments) {
 	files, err := os.ReadDir(path)
 	if err != nil {
 		// panic(err)
@@ -169,8 +187,11 @@ func populate(target *tview.TreeNode, path string) {
 	for _, file := range files {
 		if file.IsDir() {
 			node := tview.NewTreeNode(file.Name()).SetReference(filepath.Join(path, file.Name()))
-			node.SetTextStyle(node.GetTextStyle().Background(tcell.ColorRoyalBlue))
+			node.SetTextStyle(node.GetTextStyle().Background(tcell.ColorRoyalBlue)).SetIndent(4)
 			target.AddChild(node)
+			if arguments.Full {
+				populate(node, path+string(os.PathSeparator)+file.Name(), arguments)
+			}
 		}
 	}
 }
@@ -186,9 +207,10 @@ func getRootDir() string {
 	return "/"
 }
 
-func navigateTo(tree *tview.TreeView, path string) {
+func navigateTo(tree *tview.TreeView, path string, arguments Arguments) {
 	pathParts := strings.Split(path, string(os.PathSeparator))
 	children := tree.GetCurrentNode().GetChildren()
+	var currentNode *tview.TreeNode
 	for i := 0; i < len(pathParts); i++ {
 		for j := 0; j < len(children); j++ {
 			child := children[j]
@@ -198,11 +220,26 @@ func navigateTo(tree *tview.TreeView, path string) {
 				if reference != nil {
 					path = reference.(string)
 				}
-				populate(child, path)
+				if !arguments.Full {
+					populate(child, path, arguments)
+				}
 				child.Expand()
-				tree.Move(j + 1)
+				currentNode = child
 				children = child.GetChildren()
 			}
 		}
 	}
+	tree.SetCurrentNode(currentNode)
+}
+
+func StringArrayContains(data []string, input string, caseSensitive bool) bool {
+	for _, value := range data {
+		if caseSensitive && value == input {
+			return true
+		}
+		if !caseSensitive && strings.EqualFold(value, input) {
+			return true
+		}
+	}
+	return false
 }
