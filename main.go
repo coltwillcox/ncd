@@ -34,10 +34,9 @@ func main() {
 	flexFooter3 := tview.NewFlex().SetDirection(tview.FlexColumn).AddItem(footerRow3, 0, 1, false)
 	flexBody := tview.NewFlex().SetDirection(tview.FlexRow).AddItem(headerRow1, 1, 1, false).AddItem(headerRow2, 1, 1, false)
 
-	// TODO Search box in footer
-
 	rootDir := getRootDir()
 	root := tview.NewTreeNode(rootDir)
+	root.SetTextStyle(root.GetTextStyle().Background(tcell.ColorRoyalBlue))
 	populate(root, rootDir)
 	tree := tview.NewTreeView().SetRoot(root).SetCurrentNode(root)
 	tree.SetSelectedFunc(func(node *tview.TreeNode) {
@@ -59,11 +58,22 @@ func main() {
 		}
 	}).SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyLeft {
-			// TODO Go back
-			tree.GetCurrentNode().Collapse()
+			if tree.GetCurrentNode().IsExpanded() && len(tree.GetCurrentNode().GetChildren()) != 0 {
+				// On key Left, collapse current directory.
+				tree.GetCurrentNode().Collapse()
+			} else {
+				// On key Left, if current directory is collapsed or empty, go to parent directory.
+				family := tree.GetPath(tree.GetCurrentNode())
+				parentPosition := len(family) - 2
+				if parentPosition > -1 {
+					family[parentPosition].Collapse()
+					tree.SetCurrentNode(family[parentPosition])
+				}
+			}
 			return nil
 		}
 		if event.Key() == tcell.KeyRight {
+			// On key Right, expand current directory
 			currentNode := tree.GetCurrentNode()
 			children := tree.GetCurrentNode().GetChildren()
 			if len(children) == 0 {
@@ -79,6 +89,7 @@ func main() {
 			return nil
 		}
 		if event.Key() == tcell.KeyBackspace || event.Key() == tcell.KeyBackspace2 {
+			// TODO Search for node and set current
 			search := footerRow2b.GetText()
 			if len(search) == 0 {
 				return nil
@@ -87,7 +98,12 @@ func main() {
 			return nil
 		}
 		if event.Key() == tcell.KeyRune {
+			// Search for node and set current
 			footerRow2b.SetText(footerRow2b.GetText() + string(event.Rune()))
+			child := findNodeWithPrefix(root, footerRow2b.GetText())
+			if child != nil {
+				tree.SetCurrentNode(child)
+			}
 			return nil
 		}
 		if event.Key() == tcell.KeyESC || event.Key() == tcell.KeyEsc || event.Key() == tcell.KeyEscape {
@@ -125,6 +141,22 @@ func main() {
 	fmt.Println(directory)
 }
 
+func findNodeWithPrefix(parent *tview.TreeNode, prefix string) *tview.TreeNode {
+	children := parent.GetChildren()
+	for _, child := range children {
+		if strings.HasPrefix(child.GetText(), prefix) {
+			return child
+		}
+		if child.IsExpanded() {
+			if node := findNodeWithPrefix(child, prefix); node != nil {
+				return node
+			}
+		}
+	}
+
+	return nil
+}
+
 func populate(target *tview.TreeNode, path string) {
 	files, err := os.ReadDir(path)
 	if err != nil {
@@ -133,10 +165,9 @@ func populate(target *tview.TreeNode, path string) {
 		return
 	}
 	for _, file := range files {
-		node := tview.NewTreeNode(file.Name()).
-			SetReference(filepath.Join(path, file.Name())).
-			SetSelectable(file.IsDir())
 		if file.IsDir() {
+			node := tview.NewTreeNode(file.Name()).SetReference(filepath.Join(path, file.Name()))
+			node.SetTextStyle(node.GetTextStyle().Background(tcell.ColorRoyalBlue))
 			target.AddChild(node)
 		}
 	}
