@@ -1,3 +1,5 @@
+// TODO Save folder structure
+// TODO Rescan
 // TODO Add theming
 package main
 
@@ -6,20 +8,19 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
-type Arguments struct {
-	Full bool // Expensive operation
-}
+var (
+	refreshMilis int64 = 50
+	lastMilli    int64 = 0
+)
 
 func main() {
-	arguments := parseArguments()
-
 	result := make(chan string, 1)
 
 	app := tview.NewApplication()
@@ -43,7 +44,7 @@ func main() {
 	rootDir := getRootDir()
 	root := tview.NewTreeNode(rootDir)
 	root.SetTextStyle(root.GetTextStyle().Background(tcell.ColorRoyalBlue))
-	populate(root, rootDir, arguments)
+	populate(root, rootDir, false, app)
 	tree := tview.NewTreeView().SetRoot(root).SetCurrentNode(root)
 	tree.SetSelectedFunc(func(node *tview.TreeNode) {
 		reference := node.GetReference()
@@ -88,7 +89,7 @@ func main() {
 				if reference != nil {
 					path = reference.(string)
 				}
-				populate(currentNode, path, arguments)
+				populate(currentNode, path, false, app)
 			} else {
 				currentNode.SetExpanded(true)
 			}
@@ -128,7 +129,7 @@ func main() {
 	if err != nil {
 		footerRow3.SetText("error " + err.Error()) // TODO Error message area
 	}
-	navigateTo(tree, current, arguments)
+	navigateTo(tree, current, false, app)
 
 	flexBody.AddItem(tree, 0, 1, false).AddItem(footerRow1, 1, 1, false).AddItem(flexFooter2, 1, 1, false).AddItem(flexFooter3, 1, 1, false)
 
@@ -141,24 +142,18 @@ func main() {
 		return event
 	})
 
+	go func() {
+		// TODO Populate others
+		populate(root, rootDir, true, app)
+		app.Draw()
+	}()
+
 	if err := app.Run(); err != nil {
 		panic(err)
 	}
 
 	directory := <-result
 	fmt.Println(directory)
-}
-
-func parseArguments() Arguments {
-	result := Arguments{}
-
-	osArgs := map[string]string{}
-	for i := 1; i < len(os.Args); i = i + 2 {
-		osArgs[os.Args[i]] = os.Args[i+1]
-	}
-	result.Full, _ = strconv.ParseBool(osArgs["--full"])
-
-	return result
 }
 
 func findNodeWithPrefix(parent *tview.TreeNode, prefix string) *tview.TreeNode {
@@ -177,7 +172,7 @@ func findNodeWithPrefix(parent *tview.TreeNode, prefix string) *tview.TreeNode {
 	return nil
 }
 
-func populate(target *tview.TreeNode, path string, arguments Arguments) {
+func populate(target *tview.TreeNode, path string, recursive bool, app *tview.Application) {
 	files, err := os.ReadDir(path)
 	if err != nil {
 		// panic(err)
@@ -186,11 +181,33 @@ func populate(target *tview.TreeNode, path string, arguments Arguments) {
 	}
 	for _, file := range files {
 		if file.IsDir() {
-			node := tview.NewTreeNode(file.Name()).SetReference(filepath.Join(path, file.Name()))
-			node.SetTextStyle(node.GetTextStyle().Background(tcell.ColorRoyalBlue)).SetIndent(4)
-			target.AddChild(node)
-			if arguments.Full {
-				populate(node, path+string(os.PathSeparator)+file.Name(), arguments)
+			var node *tview.TreeNode
+			targetChildren := target.GetChildren()
+			filePath := filepath.Join(path, file.Name())
+
+			childFound := false
+			for _, c := range targetChildren {
+				if c.GetReference().(string) == filePath {
+					childFound = true
+					node = c
+					break
+				}
+			}
+
+			if !childFound {
+				node = tview.NewTreeNode(file.Name()).SetReference(filePath)
+				node.SetTextStyle(node.GetTextStyle().Background(tcell.ColorRoyalBlue)).SetIndent(4)
+				target.AddChild(node)
+			}
+
+			if recursive {
+				populate(node, path+string(os.PathSeparator)+file.Name(), recursive, app)
+				currentMilli := time.Now().UnixMilli()
+				if currentMilli >= lastMilli+refreshMilis {
+					app.Draw()
+					lastMilli = currentMilli
+				}
+
 			}
 		}
 	}
@@ -207,7 +224,7 @@ func getRootDir() string {
 	return "/"
 }
 
-func navigateTo(tree *tview.TreeView, path string, arguments Arguments) {
+func navigateTo(tree *tview.TreeView, path string, recursive bool, app *tview.Application) {
 	pathParts := strings.Split(path, string(os.PathSeparator))
 	children := tree.GetCurrentNode().GetChildren()
 	var currentNode *tview.TreeNode
@@ -220,8 +237,8 @@ func navigateTo(tree *tview.TreeView, path string, arguments Arguments) {
 				if reference != nil {
 					path = reference.(string)
 				}
-				if !arguments.Full {
-					populate(child, path, arguments)
+				if !recursive {
+					populate(child, path, recursive, app)
 				}
 				child.Expand()
 				currentNode = child
