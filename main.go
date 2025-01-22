@@ -4,6 +4,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/gob"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,7 +18,7 @@ import (
 )
 
 var (
-	refreshMilis int64 = 50
+	refreshMilis int64 = 500
 	lastMilli    int64 = 0
 )
 
@@ -142,9 +144,10 @@ func main() {
 		return event
 	})
 
+	// Populate full tree
 	go func() {
-		// TODO Populate others
-		populate(root, rootDir, true, app)
+		loadTree(root)
+		// populate(root, rootDir, true, app) // TODO Compare with loaded tree. Remove non existing, add new.
 		app.Draw()
 	}()
 
@@ -152,8 +155,80 @@ func main() {
 		panic(err)
 	}
 
+	// saveTree(root)
+
 	directory := <-result
 	fmt.Println(directory)
+}
+
+func loadTree(node *tview.TreeNode) {
+	configDir, _ := os.UserConfigDir()
+	configPath := filepath.Join(configDir, "ncd", "folders.gob")
+	bytez, _ := os.ReadFile(configPath)
+
+	buf := bytes.NewBuffer(bytez)
+	pathz := []string{}
+	gob.NewDecoder(buf).Decode(&pathz)
+
+	for _, path := range pathz {
+		path = strings.TrimPrefix(path, "/")
+		if path == "" {
+			continue
+		}
+		fill(node, path)
+	}
+}
+
+func fill(node *tview.TreeNode, path string) {
+	pathPartz := strings.SplitN(path, string(os.PathSeparator), 2)
+	var child *tview.TreeNode
+	for _, baby := range node.GetChildren() {
+		if baby.GetText() == pathPartz[0] {
+			child = baby
+			break
+		}
+	}
+	reference := ""
+	if node.GetReference() != nil {
+		reference = node.GetReference().(string)
+	}
+	if child == nil {
+		child = tview.NewTreeNode(pathPartz[0]).SetReference(reference + string(os.PathSeparator) + pathPartz[0])
+		child.SetTextStyle(child.GetTextStyle().Background(tcell.ColorRoyalBlue)).SetIndent(4)
+		node.AddChild(child)
+	}
+	if len(pathPartz) == 2 {
+		fill(child, pathPartz[1])
+	}
+}
+
+type Node struct {
+	Children map[string]Node
+}
+
+func saveTree(node *tview.TreeNode) {
+	pathz := []string{}
+	node.Walk(func(node, parent *tview.TreeNode) bool {
+		if node.GetReference() != nil {
+			pathz = append(pathz, node.GetReference().(string))
+		}
+		return true
+	})
+
+	configDir, _ := os.UserConfigDir()
+	_ = os.Mkdir(filepath.Join(configDir, "ncd"), 0700)
+
+	configPath := ""
+	configPath = filepath.Join(configDir, "ncd", "folders.gob")
+
+	buf := &bytes.Buffer{}
+	gob.NewEncoder(buf).Encode(pathz)
+	bs := buf.Bytes()
+
+	err := os.WriteFile(configPath, bs, 0644)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func findNodeWithPrefix(parent *tview.TreeNode, prefix string) *tview.TreeNode {
